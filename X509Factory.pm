@@ -19,7 +19,7 @@ BEGIN {
 
 my $i = 1;
 my $opensslpath = 'openssl';
-my $debug = 1;
+my $debug = 0;
 
 ### CA
 our $ISCA           = 2**$i++;
