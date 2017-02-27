@@ -71,12 +71,16 @@ sub createCertificate {
          $cconfig->{$key} =~ s,[^0-9],,g;
       } elsif($key eq "serial") {
          $cconfig->{$key} =~ s,[^a-zA-Z0-9],,g;
+      } elsif((ref($cconfig->{$key}) eq "ARRAY") && ($key eq "commonaltnames")) {
+         foreach my $val (@{$cconfig->{$key}}) {
+            $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
+         }
       } else {
          $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
       }
    }
    return { err => "No ca!" }
-      unless ($cconfig->{ca});
+      if ($cconfig->{ca} && !$cconfig->{onlycsr});
    return { err => "No key!" }
       unless ($cconfig->{key});
    my $return = {};
@@ -158,16 +162,25 @@ sub createCertificate {
          exec(@cmd);
       });
    } else {
+      my $i = 1;
+      my $j = 1;
       my $reqconf =
          "[ req ]"."\n".
          "prompt = no"."\n".
-         "distinguished_name = req_distinguished_name"."\n".
+         "distinguished_name = req_distinguished_name"."\n".($cconfig->{commonaltnames} ?
+         "req_extensions = v3_req"."\n" : "").
          "[ req_distinguished_name ]"."\n".
          "C=".$cconfig->{country}."\n".
          "ST=".$cconfig->{state}."\n".
          "L=".$cconfig->{location}."\n".
          "OU=".$cconfig->{organisation}."\n".
-         "CN=".$cconfig->{commonname}."\n";
+         "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
+         "[ v3_req ]"."\n".
+         #"basicConstraints = CA:FALSE"."\n".
+         #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
+         'subjectAltName = @alt_names'."\n".
+         "[alt_names]"."\n".
+         join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
       my $certconfig = WriteForkFd($reqconf);
       my $key = ReadForkFd('KEY');
       my $csr = ReadFork(sub {
@@ -198,7 +211,7 @@ sub createCertificate {
          }
       }
       return $return
-         unless $return->{csr};
+         if (!$return->{csr} || $cconfig->{onlycsr});
       my $crswriteer = WriteForkFd($return->{csr});
       my $types = join(", ", map { $_->[0] } grep {
          print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
