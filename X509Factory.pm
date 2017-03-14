@@ -80,7 +80,7 @@ sub createCertificate {
       }
    }
    return { err => "No ca!" }
-      if ($cconfig->{ca} && !$cconfig->{onlycsr});
+      if (!$cconfig->{ca} && !$cconfig->{onlycsr});
    return { err => "No key!" }
       unless ($cconfig->{key});
    my $return = {};
