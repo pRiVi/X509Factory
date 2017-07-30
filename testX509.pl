@@ -17,6 +17,8 @@ my $config = {
    serial       => "00", # Das naechsthoere wird genommen!
    days         => 1095,
    pass         => "1234",
+   hash         => "sha512",
+   rsasize      => "4096",
    comment      => "CryptoMagic CryptoApp Tunnel Client",
    flags        =>
       $TYPCLIENT    |
