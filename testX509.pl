@@ -8,6 +8,7 @@ use x509factory::X509Factory qw(
 );
 
 my $config = {
+   debug        => 1,
    country      => "DE",
    state        => "Germany",
    location     => "Augsburg",
@@ -17,18 +18,24 @@ my $config = {
    days         => 1095,
    pass         => "1234",
    comment      => "CryptoMagic CryptoApp Tunnel Client",
-   flags        => 
+   flags        =>
       $TYPCLIENT    |
       $KEYUSESIG    |
       $KEYUSEKEYENC |
       $EXTCLIENTAUTH,
 };
 
-foreach my $curdef (["ca",  "cacrt.sign.crt", ],
-                    ["key", "cacrt.sign.key", ]) {
-   open(my $fd, "<", $curdef->[1]);
-   while (<$fd>) {
-      $config->{$curdef->[0]} .= $_;
+foreach my $curdef (["key", "cacrt.sign.key", ],
+                    ["ca",  "cacrt.sign.crt", ]) {
+   if (-s $curdef->[1]) {
+      open(my $fd, "<", $curdef->[1]);
+      while (<$fd>) {
+         $config->{$curdef->[0]} .= $_;
+      }
+   } else {
+      print "No ca and/or no key, doing selfsigned.\n";
+      $config->{selfsign}++;
+      last;
    }
 }
 

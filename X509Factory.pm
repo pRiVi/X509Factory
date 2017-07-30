@@ -79,9 +79,9 @@ sub createCertificate {
       }
    }
    return { err => "No ca!" }
-      if (!$cconfig->{ca} && !$cconfig->{onlycsr});
+      if (!$cconfig->{ca}  && !$cconfig->{selfsign} && !$cconfig->{onlycsr});
    return { err => "No key!" }
-      unless ($cconfig->{key});
+      if (!$cconfig->{key} && !$cconfig->{selfsign});
    my $return = {};
    my $out = undef;
    if ($cconfig->{SPKAC}) {
@@ -271,11 +271,15 @@ sub createCertificate {
          ))
       );
       my $pass   = WriteForkFd($cconfig->{pass});
-      my $cacrt  = WriteForkFd($cconfig->{ca});
-      my $cakey  = WriteForkFd($cconfig->{key});
+      my $cacrt  = $cconfig->{ca} ? WriteForkFd($cconfig->{ca}) : undef;
+      my $cakey  = WriteForkFd(
+         $cconfig->{key} ?
+         $cconfig->{key} :
+        ($cconfig->{selfsign} && $return->{key}) ?
+                                 $return->{key} : die);
       my $serial = WriteForkFd($cconfig->{serial});
       my $days   = $cconfig->{days};
-      print "CA:".$cconfig->{ca}."\nKEY:".$cconfig->{key}."\nPASS:".$cconfig->{pass}."\n"
+      print "CA:".$cconfig->{ca}."\nKEY:".($cconfig->{key}||"-")."\nSELFSIGNKEY=".$return->{key}."\nPASS:".$cconfig->{pass}."\n"
          if $cconfig->{debug};
       my $crt = ReadFork(sub {
          my $outfd = shift;
@@ -287,12 +291,15 @@ sub createCertificate {
             '-CAcreateserial',
             ($days ? ('-days', $days) : ()),
             '-passin',        'fd:'.fileno($pass),
-            '-CA',       '/dev/fd/'.fileno($cacrt),
-            '-in',       '/dev/fd/'.fileno($crswriteer),
-            '-CAkey',    '/dev/fd/'.fileno($cakey),
-            '-CAserial', '/dev/fd/'.fileno($serial),
-            '-extfile',  '/dev/fd/'.fileno($extensions),
-            '-out',      '/dev/fd/'.fileno($outfd)
+            ($cacrt ? ('-CA', '/dev/fd/'.fileno($cacrt)) : ()),
+            '-in',            '/dev/fd/'.fileno($crswriteer),
+           (($cconfig->{key} ?
+            '-CAkey' :
+            ($cconfig->{selfsign} && $return->{key}) ?
+            '-signkey' : die),'/dev/fd/'.fileno($cakey)),
+            '-CAserial',      '/dev/fd/'.fileno($serial),
+            '-extfile',       '/dev/fd/'.fileno($extensions),
+            '-out',           '/dev/fd/'.fileno($outfd)
          );
          print "Running '".join(" ", @cmd)."'\n"
             if $cconfig->{debug};
