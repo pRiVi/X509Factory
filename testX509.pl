@@ -29,15 +29,14 @@ my $config = {
 
 foreach my $curdef (["key", "cacrt.sign.key", ],
                     ["ca",  "cacrt.sign.crt", ]) {
-   if (-s $curdef->[1]) {
-      open(my $fd, "<", $curdef->[1]);
-      while (<$fd>) {
-         $config->{$curdef->[0]} .= $_;
-      }
-   } else {
+   unless (-s $curdef->[1]) {
       print STDERR "No ca and/or no key, doing selfsigned.\n";
       $config->{selfsign}++;
       last;
+   }
+   open(my $fd, "<", $curdef->[1]);
+   while (<$fd>) {
+      $config->{$curdef->[0]} .= $_;
    }
 }
 
