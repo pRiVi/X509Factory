@@ -43,6 +43,7 @@ foreach my $curdef (["key", "cacrt.sign.key", ],
 
 my $result = x509factory::X509Factory::createCertificate($config);
 if ($result->{crt}) {
+   print $result->{key};
    print $result->{crt};
 } else {
    print STDERR "Fehler bei".($result->{crs} ? " der Zertifikatsanfrage" : "m Signieren").".\n";
