@@ -83,17 +83,21 @@ sub createCertificate {
    my $out = undef;
    if ($cconfig->{SPKAC}) {
       $cconfig->{SPKAC} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/],,g;
-      my $pass   = WriteForkFd($cconfig->{pass});
-      my $cacrt  = WriteForkFd($cconfig->{ca});
-      my $cakey  = WriteForkFd($cconfig->{key});
-      my $serial = WriteForkFd($cconfig->{serial});
-      my $serial2 = WriteForkFd($cconfig->{serial});
-      unlink "/tmp/serial";
-      symlink("/dev/fd/".fileno($serial2), "/tmp/serial");
-      unlink "/tmp/serial.new";
-      symlink("/dev/fd/".fileno($serial2), "/tmp/serial.new");
-      unlink "/tmp/null";
-      symlink("/dev/fd/".fileno($serial), "/tmp/null");
+      my $pass    = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
+      my $cacrt   = WriteForkFd($cconfig->{ca});
+      my $cakey   = WriteForkFd($cconfig->{key});
+      my $serial  = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
+      my $serial2 = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
+      if ($serial2) {
+         unlink "/tmp/serial";
+         symlink("/dev/fd/".fileno($serial2), "/tmp/serial");
+         unlink "/tmp/serial.new";
+         symlink("/dev/fd/".fileno($serial2), "/tmp/serial.new");
+      }
+      if ($serial) {
+         unlink "/tmp/null";
+         symlink("/dev/fd/".fileno($serial), "/tmp/null");
+      }
       symlink("/dev/null", "/tmp/null.attr");
       my $days   = $cconfig->{days};
       my $config =
@@ -106,7 +110,7 @@ sub createCertificate {
          "database        = /tmp/null"."\n".
          "new_certs_dir   = /tmp/"."\n".
          "certificate     = /dev/fd/".fileno($cacrt)."\n".
-         "serial          = /tmp/serial"."\n".
+        ($serial ? "serial          = /tmp/serial"."\n" : "").
          #"crl             = ./crl.pem"."\n".
          "private_key     = /dev/fd/".fileno($cakey)."\n".
          #"RANDFILE        = ./private/.rand"."\n".
@@ -149,7 +153,7 @@ sub createCertificate {
             "-notext",
             "-batch",
             "-config", '/dev/fd/'.fileno($configwriter),
-            '-passin', 'fd:'.fileno($pass),
+            ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
             "-spkac",  '/dev/fd/'.fileno($spkacwriter),
             '-out',    '/dev/fd/'.fileno($outfd),
          );
@@ -267,14 +271,14 @@ sub createCertificate {
             [$cconfig->{comment}, "nsComment"],
          ))
       );
-      my $pass   = WriteForkFd($cconfig->{pass});
-      my $cacrt  = $cconfig->{ca} ? WriteForkFd($cconfig->{ca}) : undef;
+      my $pass   = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
+      my $cacrt  = $cconfig->{ca}   ? WriteForkFd($cconfig->{ca})   : undef;
       my $cakey  = WriteForkFd(
          $cconfig->{key} ?
          $cconfig->{key} :
         ($cconfig->{selfsign} && $return->{key}) ?
                                  $return->{key} : die);
-      my $serial = WriteForkFd($cconfig->{serial});
+      my $serial = WriteForkFd($cconfig->{serial} || join("", (map { sprintf("%02X", rand($_)) } (0xff) x 8)));
       my $days   = $cconfig->{days};
       print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
          if $cconfig->{debug};
@@ -286,17 +290,18 @@ sub createCertificate {
             '-'.($cconfig->{hash} || 'sha256'),
             '-req',
             '-CAcreateserial',
-            ($days ? ('-days', $days) : ()),
-            '-passin',        'fd:'.fileno($pass),
-            ($cacrt ? ('-CA', '/dev/fd/'.fileno($cacrt)) : ()),
-            '-in',            '/dev/fd/'.fileno($crswriteer),
-           (($cconfig->{key} ?
+           ($days ? ('-days', $days) : ()),
+           ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
+           ($cacrt ? ('-CA',    '/dev/fd/'.fileno($cacrt)) : ()),
+            '-in',              '/dev/fd/'.fileno($crswriteer),
+          (($cconfig->{key} ?
             '-CAkey' :
-            ($cconfig->{selfsign} && $return->{key}) ?
-            '-signkey' : die),'/dev/fd/'.fileno($cakey)),
-            '-CAserial',      '/dev/fd/'.fileno($serial),
-            '-extfile',       '/dev/fd/'.fileno($extensions),
-            '-out',           '/dev/fd/'.fileno($outfd)
+           ($cconfig->{selfsign} && $return->{key}) ?
+            '-signkey' : die),  '/dev/fd/'.fileno($cakey)),
+           ($serial ?
+           ('-CAserial',        '/dev/fd/'.fileno($serial)) : ()),
+            '-extfile',         '/dev/fd/'.fileno($extensions),
+            '-out',             '/dev/fd/'.fileno($outfd)
          );
          print STDERR "Running '".join(" ", @cmd)."'\n"
             if $cconfig->{debug};
