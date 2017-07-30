@@ -19,7 +19,6 @@ BEGIN {
 
 my $i = 1;
 my $opensslpath = 'openssl';
-my $debug = 0;
 
 ### CA
 our $ISCA           = 2**$i++;
@@ -141,7 +140,7 @@ sub createCertificate {
          "stateOrProvinceName=".$cconfig->{state}."\n".
          "localityName=".       $cconfig->{location};
       print $req."\n"
-         if $debug;
+         if $cconfig->{debug};
       my $spkacwriter  = WriteForkFd($req);
       my $days = $cconfig->{days};
       $out = ReadFork(sub {
@@ -158,7 +157,7 @@ sub createCertificate {
             '-out',    '/dev/fd/'.fileno($outfd),
          );
          print "Running '".join(" ", @cmd)."'\n"
-            if $debug;
+            if $cconfig->{debug};
          exec(@cmd);
       });
    } else {
@@ -200,7 +199,7 @@ sub createCertificate {
             '-out',    '/dev/fd/'.fileno($outfd)
          );
          print "Running '".join(" ", @cmd)."'\n"
-            if $debug;
+            if $cconfig->{debug};
          exec(@cmd);
       });
       foreach my $curdef (["csr", $csr],
@@ -215,7 +214,7 @@ sub createCertificate {
       my $crswriteer = WriteForkFd($return->{csr});
       my $types = join(", ", map { $_->[0] } grep {
          print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["client",           $TYPCLIENT],
@@ -229,7 +228,7 @@ sub createCertificate {
       ));
       my $keyusage = join(", ", map { $_->[0] } grep {
          print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["digitalSignature", $KEYUSESIG],
@@ -244,7 +243,7 @@ sub createCertificate {
       ));
       my $extkeyusage = join(", ", map { $_->[0] } grep {
          print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["clientAuth",       $EXTCLIENTAUTH],
@@ -277,7 +276,7 @@ sub createCertificate {
       my $serial = WriteForkFd($cconfig->{serial});
       my $days   = $cconfig->{days};
       print "CA:".$cconfig->{ca}."\nKEY:".$cconfig->{key}."\nPASS:".$cconfig->{pass}."\n"
-         if $debug;
+         if $cconfig->{debug};
       my $crt = ReadFork(sub {
          my $outfd = shift;
          my @cmd = (
@@ -295,7 +294,8 @@ sub createCertificate {
             '-extfile',  '/dev/fd/'.fileno($extensions),
             '-out',      '/dev/fd/'.fileno($outfd)
          );
-         #print "Running '".join(" ", @cmd)."'\n";
+         print "Running '".join(" ", @cmd)."'\n"
+            if $cconfig->{debug};
          exec(@cmd);
       });
       while (<$crt>) {
