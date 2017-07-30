@@ -1,9 +1,6 @@
 ﻿package x509factory::X509Factory;
 use strict;
 
-# TODO:XXX:FIXME:
-# - Im POE::Filter:SSL überprüfen obs wirklich ein Clientzertifikat ist.
-
 BEGIN {
    use Exporter;
    our @ISA = qw(Exporter);
@@ -125,7 +122,7 @@ sub createCertificate {
          "emailAddress            = optional"."\n".
          "[ usr_cert ]"."\n".
          "basicConstraints=CA:FALSE"."\n".
-         'nsComment               = "OpenSSL Generated Certificate"'."\n".
+         'nsComment               = "CryptoMagic Generated Certificate"'."\n".
          "subjectKeyIdentifier    = hash"."\n".
          "authorityKeyIdentifier  = keyid,issuer"."\n";
       #print STDERR $config."\n";
