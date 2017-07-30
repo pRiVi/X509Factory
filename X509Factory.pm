@@ -128,7 +128,7 @@ sub createCertificate {
          'nsComment               = "OpenSSL Generated Certificate"'."\n".
          "subjectKeyIdentifier    = hash"."\n".
          "authorityKeyIdentifier  = keyid,issuer"."\n";
-      #print $config."\n";
+      #print STDERR $config."\n";
       my $configwriter = WriteForkFd($config);
       my $req =
       # TODO:XXX:FIXME: Params filtern!
@@ -139,7 +139,7 @@ sub createCertificate {
          "countryName=".        $cconfig->{country}."\n".
          "stateOrProvinceName=".$cconfig->{state}."\n".
          "localityName=".       $cconfig->{location};
-      print $req."\n"
+      print STDERR $req."\n"
          if $cconfig->{debug};
       my $spkacwriter  = WriteForkFd($req);
       my $days = $cconfig->{days};
@@ -156,7 +156,7 @@ sub createCertificate {
             "-spkac",  '/dev/fd/'.fileno($spkacwriter),
             '-out',    '/dev/fd/'.fileno($outfd),
          );
-         print "Running '".join(" ", @cmd)."'\n"
+         print STDERR "Running '".join(" ", @cmd)."'\n"
             if $cconfig->{debug};
          exec(@cmd);
       });
@@ -198,7 +198,7 @@ sub createCertificate {
             '-config', '/dev/fd/'.fileno($certconfig),
             '-out',    '/dev/fd/'.fileno($outfd)
          );
-         print "Running '".join(" ", @cmd)."'\n"
+         print STDERR "Running '".join(" ", @cmd)."'\n"
             if $cconfig->{debug};
          exec(@cmd);
       });
@@ -213,7 +213,7 @@ sub createCertificate {
          if (!$return->{csr} || $cconfig->{onlycsr});
       my $crswriteer = WriteForkFd($return->{csr});
       my $types = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
             if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
@@ -227,7 +227,7 @@ sub createCertificate {
          ["sslCA",            $TYPECASSL],
       ));
       my $keyusage = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
             if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
@@ -242,7 +242,7 @@ sub createCertificate {
          ["decipherOnly",     $KEYUSEONLYDEC],
       ));
       my $extkeyusage = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
             if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
@@ -279,7 +279,7 @@ sub createCertificate {
                                  $return->{key} : die);
       my $serial = WriteForkFd($cconfig->{serial});
       my $days   = $cconfig->{days};
-      print "CA:".$cconfig->{ca}."\nKEY:".($cconfig->{key}||"-")."\nSELFSIGNKEY=".$return->{key}."\nPASS:".$cconfig->{pass}."\n"
+      print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
          if $cconfig->{debug};
       my $crt = ReadFork(sub {
          my $outfd = shift;
@@ -301,7 +301,7 @@ sub createCertificate {
             '-extfile',       '/dev/fd/'.fileno($extensions),
             '-out',           '/dev/fd/'.fileno($outfd)
          );
-         print "Running '".join(" ", @cmd)."'\n"
+         print STDERR "Running '".join(" ", @cmd)."'\n"
             if $cconfig->{debug};
          exec(@cmd);
       });
@@ -346,7 +346,7 @@ sub WriteForkFd {
       my $id = fileno($CLIENT);
       close($CLIENT);
       my $real = syswrite($SERVER, $data);
-      #print $id." WROTE ".$real." of ".length($data)." Bytes\n"; # .$data."\n";
+      #print STDERR $id." WROTE ".$real." of ".length($data)." Bytes\n"; # .$data."\n";
       close($SERVER);
       exit(0);
    }

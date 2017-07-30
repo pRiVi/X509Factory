@@ -35,7 +35,7 @@ foreach my $curdef (["key", "cacrt.sign.key", ],
          $config->{$curdef->[0]} .= $_;
       }
    } else {
-      print "No ca and/or no key, doing selfsigned.\n";
+      print STDERR "No ca and/or no key, doing selfsigned.\n";
       $config->{selfsign}++;
       last;
    }
