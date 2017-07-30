@@ -1,6 +1,10 @@
 use strict;
 
 use x509factory::X509Factory qw(
+   $ISCA
+   $TYPECASSL
+   $KEYUSECERTSIGN
+   $KEYUSECRLSIG
    $TYPCLIENT
    $KEYUSESIG
    $KEYUSEKEYENC
@@ -19,11 +23,12 @@ my $config = {
    pass         => "1234",
    hash         => "sha512",
    rsasize      => "4096",
-   comment      => "CryptoMagic CryptoApp Tunnel Client",
+   selfsign     => 1,
+   comment      => "CryptoMagic Client",
    flags        =>
-      $TYPCLIENT    |
-      $KEYUSESIG    |
-      $KEYUSEKEYENC |
+      $TYPCLIENT     |
+      $KEYUSESIG     |
+      $KEYUSEKEYENC  |
       $EXTCLIENTAUTH,
 };
 
@@ -32,6 +37,13 @@ foreach my $curdef (["key", "cacrt.sign.key", ],
    unless (-s $curdef->[1]) {
       print STDERR "No ca and/or no key, doing selfsigned.\n";
       $config->{selfsign}++;
+      $config->{comment} = "CryptoMagic CA";
+      $config->{flags} =  {
+         $ISCA           |
+         $TYPECASSL      |
+         $KEYUSECERTSIGN |
+         $KEYUSECRLSIG,
+      };
       last;
    }
    open(my $fd, "<", $curdef->[1]);
