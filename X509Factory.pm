@@ -69,7 +69,7 @@ sub createCertificate {
          $cconfig->{$key} =~ s,[^a-zA-Z0-9],,g;
       } elsif((ref($cconfig->{$key}) eq "ARRAY") && ($key eq "commonaltnames")) {
          foreach my $val (@{$cconfig->{$key}}) {
-            $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
+            $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\_\/\,\~\.\;\<\>\@],,g;
          }
       } else {
          $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
