@@ -72,7 +72,7 @@ sub createCertificate {
             $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\_\/\,\~\.\;\<\>\@],,g;
          }
       } else {
-         $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
+         $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\_\+\=\/\,\~\.\;\<\>\@],,g;
       }
    }
    return { err => "No ca!" }
