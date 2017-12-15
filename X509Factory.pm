@@ -1,9 +1,6 @@
 ﻿package x509factory::X509Factory;
 use strict;
 
-# TODO:XXX:FIXME:
-# - Im POE::Filter:SSL überprüfen obs wirklich ein Clientzertifikat ist.
-
 BEGIN {
    use Exporter;
    our @ISA = qw(Exporter);
@@ -19,7 +16,6 @@ BEGIN {
 
 my $i = 1;
 my $opensslpath = 'openssl';
-my $debug = 0;
 
 ### CA
 our $ISCA           = 2**$i++;
@@ -73,14 +69,15 @@ sub createCertificate {
          $cconfig->{$key} =~ s,[^a-zA-Z0-9],,g;
       } elsif((ref($cconfig->{$key}) eq "ARRAY") && ($key eq "commonaltnames")) {
          foreach my $val (@{$cconfig->{$key}}) {
-            $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
+            $val =~ s,[^a-zA-Z0-9\ \:\-\+\=\_\/\,\~\.\;\<\>\@],,g;
          }
       } else {
-         $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/\,\~\.\;\<\>\@],,g;
+         $cconfig->{$key} =~ s,[^a-zA-Z0-9\ \:\-\_\+\=\/\,\~\.\;\<\>\@],,g;
       }
    }
    return { err => "No ca!" }
       if (!$cconfig->{ca} &&
+          !$cconfig->{selfsign} &&
           !$cconfig->{onlycsr});
    return { err => "No key!" }
       if ($cconfig->{ca} &&
@@ -89,17 +86,21 @@ sub createCertificate {
    my $out = undef;
    if ($cconfig->{SPKAC}) {
       $cconfig->{SPKAC} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/],,g;
-      my $pass   = WriteForkFd($cconfig->{pass});
-      my $cacrt  = WriteForkFd($cconfig->{ca});
-      my $cakey  = WriteForkFd($cconfig->{key});
-      my $serial = WriteForkFd($cconfig->{serial});
-      my $serial2 = WriteForkFd($cconfig->{serial});
-      unlink "/tmp/serial";
-      symlink("/dev/fd/".fileno($serial2), "/tmp/serial");
-      unlink "/tmp/serial.new";
-      symlink("/dev/fd/".fileno($serial2), "/tmp/serial.new");
-      unlink "/tmp/null";
-      symlink("/dev/fd/".fileno($serial), "/tmp/null");
+      my $pass    = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
+      my $cacrt   = WriteForkFd($cconfig->{ca});
+      my $cakey   = WriteForkFd($cconfig->{key});
+      my $serial  = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
+      my $serial2 = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
+      if ($serial2) {
+         unlink "/tmp/serial";
+         symlink("/dev/fd/".fileno($serial2), "/tmp/serial");
+         unlink "/tmp/serial.new";
+         symlink("/dev/fd/".fileno($serial2), "/tmp/serial.new");
+      }
+      if ($serial) {
+         unlink "/tmp/null";
+         symlink("/dev/fd/".fileno($serial), "/tmp/null");
+      }
       symlink("/dev/null", "/tmp/null.attr");
       my $days   = $cconfig->{days};
       my $config =
@@ -112,7 +113,7 @@ sub createCertificate {
          "database        = /tmp/null"."\n".
          "new_certs_dir   = /tmp/"."\n".
          "certificate     = /dev/fd/".fileno($cacrt)."\n".
-         "serial          = /tmp/serial"."\n".
+        ($serial ? "serial          = /tmp/serial"."\n" : "").
          #"crl             = ./crl.pem"."\n".
          "private_key     = /dev/fd/".fileno($cakey)."\n".
          #"RANDFILE        = ./private/.rand"."\n".
@@ -128,10 +129,10 @@ sub createCertificate {
          "emailAddress            = optional"."\n".
          "[ usr_cert ]"."\n".
          "basicConstraints=CA:FALSE"."\n".
-         'nsComment               = "OpenSSL Generated Certificate"'."\n".
+         'nsComment               = "CryptoMagic Generated Certificate"'."\n".
          "subjectKeyIdentifier    = hash"."\n".
          "authorityKeyIdentifier  = keyid,issuer"."\n";
-      #print $config."\n";
+      #print STDERR $config."\n";
       my $configwriter = WriteForkFd($config);
       my $req =
       # TODO:XXX:FIXME: Params filtern!
@@ -142,8 +143,8 @@ sub createCertificate {
          "countryName=".        $cconfig->{country}."\n".
          "stateOrProvinceName=".$cconfig->{state}."\n".
          "localityName=".       $cconfig->{location};
-      print $req."\n"
-         if $debug;
+      print STDERR $req."\n"
+         if $cconfig->{debug};
       my $spkacwriter  = WriteForkFd($req);
       my $days = $cconfig->{days};
       $out = ReadFork(sub {
@@ -155,12 +156,12 @@ sub createCertificate {
             "-notext",
             "-batch",
             "-config", '/dev/fd/'.fileno($configwriter),
-            '-passin', 'fd:'.fileno($pass),
+            ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
             "-spkac",  '/dev/fd/'.fileno($spkacwriter),
             '-out',    '/dev/fd/'.fileno($outfd),
          );
-         print "Running '".join(" ", @cmd)."'\n"
-            if $debug;
+         print STDERR "Running '".join(" ", @cmd)."'\n"
+            if $cconfig->{debug};
          exec(@cmd);
       });
    } else {
@@ -194,15 +195,15 @@ sub createCertificate {
             '-passout', 'pass:',
             '-new',
             '-newkey',
-            'rsa:2048',
-            '-sha256',
+            'rsa:'.($cconfig->{rsasize} || '2048'),
+            '-'.   ($cconfig->{hash}    || 'sha256'),
             '-nodes',
             '-keyout', '/dev/fd/'.fileno($key),
             '-config', '/dev/fd/'.fileno($certconfig),
             '-out',    '/dev/fd/'.fileno($outfd)
          );
-         print "Running '".join(" ", @cmd)."'\n"
-            if $debug;
+         print STDERR "Running '".join(" ", @cmd)."'\n"
+            if $cconfig->{debug};
          exec(@cmd);
       });
       foreach my $curdef (["csr", $csr],
@@ -216,8 +217,8 @@ sub createCertificate {
          if (!$return->{csr} || $cconfig->{onlycsr});
       my $crswriteer = WriteForkFd($return->{csr});
       my $types = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["client",           $TYPCLIENT],
@@ -230,8 +231,8 @@ sub createCertificate {
          ["sslCA",            $TYPECASSL],
       ));
       my $keyusage = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["digitalSignature", $KEYUSESIG],
@@ -245,8 +246,8 @@ sub createCertificate {
          ["decipherOnly",     $KEYUSEONLYDEC],
       ));
       my $extkeyusage = join(", ", map { $_->[0] } grep {
-         print $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $debug;
+         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+            if $cconfig->{debug};
          ($cconfig->{flags} & $_->[1])
       } (
          ["clientAuth",       $EXTCLIENTAUTH],
@@ -273,31 +274,40 @@ sub createCertificate {
             [$cconfig->{comment}, "nsComment"],
          ))
       );
-      my $pass   = WriteForkFd($cconfig->{pass});
-      my $cacrt  = WriteForkFd($cconfig->{ca});
-      my $cakey  = WriteForkFd($cconfig->{key});
-      my $serial = WriteForkFd($cconfig->{serial});
+      my $pass   = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
+      my $cacrt  = $cconfig->{ca}   ? WriteForkFd($cconfig->{ca})   : undef;
+      my $cakey  = WriteForkFd(
+         $cconfig->{key} ?
+         $cconfig->{key} :
+        ($cconfig->{selfsign} && $return->{key}) ?
+                                 $return->{key} : die);
+      my $serial = WriteForkFd($cconfig->{serial} || join("", (map { sprintf("%02X", rand($_)) } (0xff) x 8)));
       my $days   = $cconfig->{days};
-      print "CA:".$cconfig->{ca}."\nKEY:".$cconfig->{key}."\nPASS:".$cconfig->{pass}."\n"
-         if $debug;
+      print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
+         if $cconfig->{debug};
       my $crt = ReadFork(sub {
          my $outfd = shift;
          my @cmd = (
             $opensslpath,
             'x509',
-            '-sha256',
+            '-'.($cconfig->{hash} || 'sha256'),
             '-req',
             '-CAcreateserial',
-            ($days ? ('-days', $days) : ()),
-            '-passin',        'fd:'.fileno($pass),
-            '-CA',       '/dev/fd/'.fileno($cacrt),
-            '-in',       '/dev/fd/'.fileno($crswriteer),
-            '-CAkey',    '/dev/fd/'.fileno($cakey),
-            '-CAserial', '/dev/fd/'.fileno($serial),
-            '-extfile',  '/dev/fd/'.fileno($extensions),
-            '-out',      '/dev/fd/'.fileno($outfd)
+           ($days ? ('-days', $days) : ()),
+           ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
+           ($cacrt ? ('-CA',    '/dev/fd/'.fileno($cacrt)) : ()),
+            '-in',              '/dev/fd/'.fileno($crswriteer),
+          (($cconfig->{key} ?
+            '-CAkey' :
+           ($cconfig->{selfsign} && $return->{key}) ?
+            '-signkey' : die),  '/dev/fd/'.fileno($cakey)),
+           ($serial ?
+           ('-CAserial',        '/dev/fd/'.fileno($serial)) : ()),
+            '-extfile',         '/dev/fd/'.fileno($extensions),
+            '-out',             '/dev/fd/'.fileno($outfd)
          );
-         #print "Running '".join(" ", @cmd)."'\n";
+         print STDERR "Running '".join(" ", @cmd)."'\n"
+            if $cconfig->{debug};
          exec(@cmd);
       });
       while (<$crt>) {
@@ -341,7 +351,7 @@ sub WriteForkFd {
       my $id = fileno($CLIENT);
       close($CLIENT);
       my $real = syswrite($SERVER, $data);
-      #print $id." WROTE ".$real." of ".length($data)." Bytes\n"; # .$data."\n";
+      #print STDERR $id." WROTE ".$real." of ".length($data)." Bytes\n"; # .$data."\n";
       close($SERVER);
       exit(0);
    }
