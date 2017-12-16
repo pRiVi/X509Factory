@@ -1,4 +1,4 @@
-﻿package x509factory::X509Factory;
+﻿package X509Factory;
 use strict;
 
 BEGIN {
@@ -16,6 +16,8 @@ BEGIN {
 
 my $i = 1;
 my $opensslpath = 'openssl';
+
+our $VERSION = 0.01;
 
 ### CA
 our $ISCA           = 2**$i++;
@@ -386,3 +388,21 @@ sub ReadForkFd {
       exit(0);
    }
 }
+
+__END__
+
+=head1 NAME
+
+X509Factory - Create X509 Certificate requests and signed requests easy
+
+=head1 VERSION
+
+Version 0.01
+
+=head1 DESCRIPTION
+
+Create X509 Certificate requests and signed requests easy
+
+=cut
+
+1;
