@@ -389,8 +389,6 @@ sub ReadForkFd {
    }
 }
 
-__END__
-
 =head1 NAME
 
 X509Factory - Create X509 Certificate requests and signed requests easy
