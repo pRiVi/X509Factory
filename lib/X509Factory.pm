@@ -1,5 +1,6 @@
 ﻿package X509Factory;
 use strict;
+use ELF::sign;
 
 BEGIN {
    use Exporter;
@@ -171,50 +172,24 @@ sub createCertificate {
       my $j = 1;
       my $reqconf =
          "[ req ]"."\n".
-         "prompt = no"."\n".
-         "distinguished_name = req_distinguished_name"."\n".($cconfig->{commonaltnames} ?
-         "req_extensions = v3_req"."\n" : "").
-         "[ req_distinguished_name ]"."\n".
-         "C=".$cconfig->{country}."\n".
-         "ST=".$cconfig->{state}."\n".
-         "L=".$cconfig->{location}."\n".
-         "OU=".$cconfig->{organisation}."\n".
-         "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
-         "[ v3_req ]"."\n".
-         #"basicConstraints = CA:FALSE"."\n".
-         #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
-         'subjectAltName = @alt_names'."\n".
-         "[alt_names]"."\n".
-         join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
-      my $certconfig = WriteForkFd($reqconf);
-      my $key = ReadForkFd('KEY');
-      my $csr = ReadFork(sub {
-         my $outfd = shift;
-         my @cmd = (
-            $opensslpath,
-            'req',
-            '-passin', 'pass:',
-            '-passout', 'pass:',
-            '-new',
-            '-newkey',
-            'rsa:'.($cconfig->{rsasize} || '2048'),
-            '-'.   ($cconfig->{hash}    || 'sha256'),
-            '-nodes',
-            '-keyout', '/dev/fd/'.fileno($key),
-            '-config', '/dev/fd/'.fileno($certconfig),
-            '-out',    '/dev/fd/'.fileno($outfd)
-         );
-         print STDERR "Running '".join(" ", @cmd)."'\n"
-            if $cconfig->{debug};
-         exec(@cmd);
-      });
-      foreach my $curdef (["csr", $csr],
-                          ["key", $key]) {
-         my $fd = $curdef->[1];
-         while (<$fd>) {
-            $return->{$curdef->[0]} .= $_;
-         }
-      }
+      "prompt = no"."\n".
+      "distinguished_name = req_distinguished_name"."\n".($cconfig->{commonaltnames} ?
+      "req_extensions = v3_req"."\n" : "").
+      "[ req_distinguished_name ]"."\n".
+      "C=".$cconfig->{country}."\n".
+      "ST=".$cconfig->{state}."\n".
+      "L=".$cconfig->{location}."\n".
+      "OU=".$cconfig->{organisation}."\n".
+      "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
+      "[ v3_req ]"."\n".
+      #"basicConstraints = CA:FALSE"."\n".
+      #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
+      'subjectAltName = @alt_names'."\n".
+      "[alt_names]"."\n".
+      join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
+      my $result = ELF::sign->new()->req($reqconf, undef, 'sha256', "rsa:2048", 31, undef);
+      $return->{csr} = $result->[1];
+      $return->{key} = $result->[0];
       return $return
          if (!$return->{csr} || $cconfig->{onlycsr});
       my $crswriteer = WriteForkFd($return->{csr});
@@ -265,56 +240,21 @@ sub createCertificate {
          ["nsSGC",            $EXTNSSGC],
       ));
       my $comment = $cconfig->{comment};
-      my $extensions = WriteForkFd(
+      my $extstr =
          "basicConstraints = CA:".(($cconfig->{flags} & $ISCA) ? "TRUE" : "FALSE")."\n".
-         join("", map {
-            $_->[1]." = ".$_->[0]."\n"
-         } grep { $_->[0] } (
-            [$types,              "nsCertType"],
-            [$keyusage,           "keyUsage"],
-            [$extkeyusage,        "extendedKeyUsage"],
-            [$cconfig->{comment}, "nsComment"],
-         ))
-      );
-      my $pass   = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
-      my $cacrt  = $cconfig->{ca}   ? WriteForkFd($cconfig->{ca})   : undef;
-      my $cakey  = WriteForkFd(
-         $cconfig->{key} ?
-         $cconfig->{key} :
-        ($cconfig->{selfsign} && $return->{key}) ?
-                                 $return->{key} : die);
-      my $serial = WriteForkFd($cconfig->{serial} || join("", (map { sprintf("%02X", rand($_)) } (0xff) x 8)));
-      my $days   = $cconfig->{days};
+      join("", map {
+         $_->[1]." = ".$_->[0]."\n"
+      } grep { $_->[0] } (
+         [$types,              "nsCertType"],
+         [$keyusage,           "keyUsage"],
+         [$extkeyusage,        "extendedKeyUsage"],
+         [$cconfig->{comment}, "nsComment"],
+      ));
+      $result = ELF::sign->new()->signx($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass}, $return->{csr}, $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha256', $cconfig->{days}, $extstr);
       print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
          if $cconfig->{debug};
-      my $crt = ReadFork(sub {
-         my $outfd = shift;
-         my @cmd = (
-            $opensslpath,
-            'x509',
-            '-'.($cconfig->{hash} || 'sha256'),
-            '-req',
-            '-CAcreateserial',
-           ($days ? ('-days', $days) : ()),
-           ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
-           ($cacrt ? ('-CA',    '/dev/fd/'.fileno($cacrt)) : ()),
-            '-in',              '/dev/fd/'.fileno($crswriteer),
-          (($cconfig->{key} ?
-            '-CAkey' :
-           ($cconfig->{selfsign} && $return->{key}) ?
-            '-signkey' : die),  '/dev/fd/'.fileno($cakey)),
-           ($serial ?
-           ('-CAserial',        '/dev/fd/'.fileno($serial)) : ()),
-            '-extfile',         '/dev/fd/'.fileno($extensions),
-            '-out',             '/dev/fd/'.fileno($outfd)
-         );
-         print STDERR "Running '".join(" ", @cmd)."'\n"
-            if $cconfig->{debug};
-         exec(@cmd);
-      });
-      while (<$crt>) {
-         $return->{crt} .= $_;
-      }
+      $return->{crt} = $result->[0];
+      print STDERR "RESULT2:".$result->[1]."\n";
       my $crtwriter = WriteForkFd($return->{crt});
       my $keywriter = WriteForkFd($return->{key});
       $out = ReadFork(sub {
