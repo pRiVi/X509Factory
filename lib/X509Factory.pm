@@ -171,7 +171,7 @@ sub createCertificate {
      [$extkeyusage,        "extendedKeyUsage"],
      [$cconfig->{comment}, "nsComment"],
   ));
-  $result = $x->signx($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass},
+  $result = $x->x509($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass},
      #$return->{csr},
      undef,
      $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha256', $cconfig->{days}, $extstr, $x->getreq());
@@ -179,11 +179,11 @@ sub createCertificate {
       if $cconfig->{debug};
    $return->{crt} = $result->[0];
    if ($cconfig->{SPKAC}) {
-      print "SENDING:".$return->{crt}.":\n";
+      #print "SENDING:".$return->{crt}.":\n";
       $return->{out} = $return->{crt};
       return $return;
    }
-   print STDERR "RESULT2:".$result->[1]."\n";
+   #print STDERR "RESULT2:".$result->[1]."\n";
    my $crtwriter = WriteForkFd($return->{crt});
    my $keywriter = WriteForkFd($return->{key});
    $out = ReadFork(sub {
