@@ -108,7 +108,7 @@ static char *make_config_name()
     return p;
 }
 
-int main(int argc, char *argv[])
+int x509_factory_main(int argc, char *argv[])
 {
     FUNCTION f, *fp;
     LHASH_OF(FUNCTION) *prog = NULL;
