@@ -1,6 +1,7 @@
-﻿package X509Factory;
+﻿package X509::Factory;
+
 use strict;
-use ELF::sign;
+use X509::OpenSSL;
 
 BEGIN {
    use Exporter;
@@ -16,9 +17,12 @@ BEGIN {
 }
 
 my $i = 1;
-my $opensslpath = 'openssl';
 
-our $VERSION = 0.01;
+our $VERSION = 0.02;
+
+require XSLoader;
+XSLoader::load('X509::Factory', $VERSION);
+
 
 ### CA
 our $ISCA           = 2**$i++;
@@ -56,7 +60,7 @@ our $EXTMSCOMSIGN   = 2**$i++;
 our $EXTMSCTLSIGN   = 2**$i++;
 our $EXTMSSGC       = 2**$i++;
 our $EXTMSEFS       = 2**$i++;
-# Netscape 
+# Netscape
 our $EXTNSSGC       = 2**$i++;
 
 sub createCertificate {
@@ -106,7 +110,7 @@ sub createCertificate {
   'subjectAltName = @alt_names'."\n".
   "[alt_names]"."\n".
   join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
-  my $x = ELF::sign->new();
+  my $x = X509::OpenSSL->new();
   my $result = $x->req($reqconf, undef, 'sha256', "rsa:2048", 31, undef, $cconfig->{SPKAC} || "");
   $return->{csr} = $result->[1];
   $return->{key} = $result->[0];
@@ -187,11 +191,11 @@ sub createCertificate {
 
 =head1 NAME
 
-X509Factory - Create X509 Certificate requests and signed requests easy
+X509::Factory - Create X509 Certificate requests and signed requests easy
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =head1 DESCRIPTION
 

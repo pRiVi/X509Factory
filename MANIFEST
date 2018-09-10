@@ -1,5 +1,6 @@
 Changes
-lib/X509Factory.pm
+lib/X509/Factory.pm
+lib/X509/OpenSSL.pm
 Makefile.PL
 MANIFEST			This list of files
 README
@@ -7,3 +8,15 @@ t/00-load.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t
+cm_openssl.xs
+app_rand.c
+apps.c
+cm_helper.c
+cm_req.c
+cm_x509.c
+openssl.c
+opt.c
+inc/apps.h
+inc/e_os.h
+inc/s_apps.h
+typemap
