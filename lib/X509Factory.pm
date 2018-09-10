@@ -113,7 +113,6 @@ sub createCertificate {
   #print "REQUEST:".$result->[3]."\n";
   return $return
      if (!$return->{csr} || $cconfig->{onlycsr});
-  my $crswriteer = WriteForkFd($return->{csr});
   my $types = join(", ", map { $_->[0] } grep {
      print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
         if $cconfig->{debug};
@@ -179,82 +178,11 @@ sub createCertificate {
       if $cconfig->{debug};
    $return->{crt} = $result->[0];
    if ($cconfig->{SPKAC}) {
-      #print "SENDING:".$return->{crt}.":\n";
       $return->{out} = $return->{crt};
-      return $return;
-   }
-   #print STDERR "RESULT2:".$result->[1]."\n";
-   my $crtwriter = WriteForkFd($return->{crt});
-   my $keywriter = WriteForkFd($return->{key});
-   $out = ReadFork(sub {
-      my $outfd = shift;
-      my @cmd = (
-         $opensslpath,
-         "pkcs12", "-export",
-         "-in",    '/dev/fd/'.fileno($crtwriter),
-         "-inkey", '/dev/fd/'.fileno($keywriter),
-         "-out",   '/dev/fd/'.fileno($outfd),
-         "-passin", "pass:''", "-passout", "pass:".($cconfig->{pkcs12pass}||""));
-      exec(@cmd);
-   });
-   while (<$out>) {
-      $return->{out} .= $_;
+   } else {
+      $return->{out} = $x->pkcs12("", $cconfig->{pkcs12pass}, $return->{crt}, $return->{key},  "sha1");
    }
    return $return;
-}
-
-sub doPipe {
-   my $CLIENT = undef;
-   my $SERVER = undef;
-   $^F = 1024; # TODO:XXX:FIXME: Wir machen beim Forken gar keine Sockets mehr zu.... Sollten wir das so machen?
-   pipe($CLIENT, $SERVER);
-   return [$CLIENT, $SERVER];
-}
-
-sub WriteForkFd {
-   my $data = shift;
-   my ($CLIENT, $SERVER) = @{doPipe()};
-   if (my $pid = fork) {
-      close($SERVER);
-      return $CLIENT;
-   } else {
-      my $id = fileno($CLIENT);
-      close($CLIENT);
-      my $real = syswrite($SERVER, $data);
-      #print STDERR $id." WROTE ".$real." of ".length($data)." Bytes\n"; # .$data."\n";
-      close($SERVER);
-      exit(0);
-   }
-}
-
-sub ReadFork {
-   my $func = shift;
-   my ($CLIENT, $SERVER) = @{doPipe()};
-   if (my $pid = fork) {
-      close($SERVER);
-      return $CLIENT;
-   } else {
-      close($CLIENT);
-      &$func($SERVER);
-      exit(0);
-   }
-}
-
-sub ReadForkFd {
-   my $name = shift;
-   my ($CLIENT, $SERVER) = @{doPipe()};
-   if (my $pid = fork) {
-      close($SERVER);
-      return $CLIENT;
-   } else {
-      close($CLIENT);
-      my $buf = '';
-      while(<$SERVER>) {
-         print $SERVER $_;
-      }
-      close($SERVER);
-      exit(0);
-   }
 }
 
 =head1 NAME
