@@ -87,188 +87,116 @@ sub createCertificate {
          !$cconfig->{key});
    my $return = {};
    my $out = undef;
+  my $i = 1;
+  my $j = 1;
+  my $reqconf =
+     "[ req ]"."\n".
+  "prompt = no"."\n".
+  "distinguished_name = req_distinguished_name"."\n".($cconfig->{commonaltnames} ?
+  "req_extensions = v3_req"."\n" : "").
+  "[ req_distinguished_name ]"."\n".
+  "C=".$cconfig->{country}."\n".
+  "ST=".$cconfig->{state}."\n".
+  "L=".$cconfig->{location}."\n".
+  "OU=".$cconfig->{organisation}."\n".
+  "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
+  "[ v3_req ]"."\n".
+  #"basicConstraints = CA:FALSE"."\n".
+  #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
+  'subjectAltName = @alt_names'."\n".
+  "[alt_names]"."\n".
+  join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
+  my $x = ELF::sign->new();
+  my $result = $x->req($reqconf, undef, 'sha256', "rsa:2048", 31, undef, $cconfig->{SPKAC} || "");
+  $return->{csr} = $result->[1];
+  $return->{key} = $result->[0];
+  #print "REQUEST:".$result->[3]."\n";
+  return $return
+     if (!$return->{csr} || $cconfig->{onlycsr});
+  my $crswriteer = WriteForkFd($return->{csr});
+  my $types = join(", ", map { $_->[0] } grep {
+     print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+        if $cconfig->{debug};
+     ($cconfig->{flags} & $_->[1])
+  } (
+     ["client",           $TYPCLIENT],
+     ["server",           $TYPSERVER],
+     ["email",            $TYPEMAIL],
+     ["objsign",          $TYPEOBJ],
+     ["reserved",         $TYPERESERVED],
+     ["objCA",            $TYPECAOBJ],
+     ["emailCA",          $TYPECAEMAIL],
+     ["sslCA",            $TYPECASSL],
+  ));
+  my $keyusage = join(", ", map { $_->[0] } grep {
+     print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+        if $cconfig->{debug};
+     ($cconfig->{flags} & $_->[1])
+  } (
+     ["digitalSignature", $KEYUSESIG],
+     ["nonRepudiation",   $KEYUSENONREDU],
+     ["keyEncipherment",  $KEYUSEKEYENC],
+     ["dataEncipherment", $KEYUSEDATAENC],
+     ["keyAgreement",     $KEYUSEKEYAGR],
+     ["keyCertSign",      $KEYUSECERTSIGN],
+     ["cRLSign",          $KEYUSECRLSIG],
+     ["encipherOnly",     $KEYUSEONLYENC],
+     ["decipherOnly",     $KEYUSEONLYDEC],
+  ));
+  my $extkeyusage = join(", ", map { $_->[0] } grep {
+     print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
+        if $cconfig->{debug};
+     ($cconfig->{flags} & $_->[1])
+  } (
+     ["clientAuth",       $EXTCLIENTAUTH],
+     ["serverAuth",       $EXTSERVERAUTH],
+     ["codeSigning",      $EXTOBJSIGN],
+     ["emailProtection",  $EXTEMAIL],
+     ["timeStamping",     $EXTTIMESTAMP],
+     ["msCodeInd",        $EXTMSINSIGN],
+     ["msCodeCom",        $EXTMSCOMSIGN],
+     ["msCTLSign",        $EXTMSCTLSIGN],
+     ["msSGC",            $EXTMSSGC],
+     ["msEFS",            $EXTMSEFS],
+     ["nsSGC",            $EXTNSSGC],
+  ));
+  my $comment = $cconfig->{comment};
+  my $extstr =
+     "basicConstraints = CA:".(($cconfig->{flags} & $ISCA) ? "TRUE" : "FALSE")."\n".
+  join("", map {
+     $_->[1]." = ".$_->[0]."\n"
+  } grep { $_->[0] } (
+     [$types,              "nsCertType"],
+     [$keyusage,           "keyUsage"],
+     [$extkeyusage,        "extendedKeyUsage"],
+     [$cconfig->{comment}, "nsComment"],
+  ));
+  $result = $x->signx($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass},
+     #$return->{csr},
+     undef,
+     $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha256', $cconfig->{days}, $extstr, $x->getreq());
+   print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
+      if $cconfig->{debug};
+   $return->{crt} = $result->[0];
    if ($cconfig->{SPKAC}) {
-      $cconfig->{SPKAC} =~ s,[^a-zA-Z0-9\ \:\-\+\=\/],,g;
-      my $pass    = $cconfig->{pass} ? WriteForkFd($cconfig->{pass}) : undef;
-      my $cacrt   = WriteForkFd($cconfig->{ca});
-      my $cakey   = WriteForkFd($cconfig->{key});
-      my $serial  = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
-      my $serial2 = $cconfig->{serial} ? WriteForkFd($cconfig->{serial}) : undef;
-      if ($serial2) {
-         unlink "/tmp/serial";
-         symlink("/dev/fd/".fileno($serial2), "/tmp/serial");
-         unlink "/tmp/serial.new";
-         symlink("/dev/fd/".fileno($serial2), "/tmp/serial.new");
-      }
-      if ($serial) {
-         unlink "/tmp/null";
-         symlink("/dev/fd/".fileno($serial), "/tmp/null");
-      }
-      symlink("/dev/null", "/tmp/null.attr");
-      my $days   = $cconfig->{days};
-      my $config =
-         "[ ca ]"."\n".
-         "default_ca      = CA_default"."\n".
-         "[ CA_default ]"."\n".
-         #"dir             = ."."\n".
-         "certs           = /tmp/"."\n".
-         #"crl_dir         = ./crl"."\n".
-         "database        = /tmp/null"."\n".
-         "new_certs_dir   = /tmp/"."\n".
-         "certificate     = /dev/fd/".fileno($cacrt)."\n".
-        ($serial ? "serial          = /tmp/serial"."\n" : "").
-         #"crl             = ./crl.pem"."\n".
-         "private_key     = /dev/fd/".fileno($cakey)."\n".
-         #"RANDFILE        = ./private/.rand"."\n".
-         "x509_extensions = usr_cert"."\n".
-         "default_md      = default"."\n".
-         "policy          = policy_match"."\n".
-         "[ policy_match ]"."\n".
-         "countryName             = optional"."\n".
-         "stateOrProvinceName     = optional"."\n".
-         "organizationName        = optional"."\n".
-         "organizationalUnitName  = optional"."\n".
-         "commonName              = supplied"."\n".
-         "emailAddress            = optional"."\n".
-         "[ usr_cert ]"."\n".
-         "basicConstraints=CA:FALSE"."\n".
-         'nsComment               = "CryptoMagic Generated Certificate"'."\n".
-         "subjectKeyIdentifier    = hash"."\n".
-         "authorityKeyIdentifier  = keyid,issuer"."\n";
-      #print STDERR $config."\n";
-      my $configwriter = WriteForkFd($config);
-      my $req =
-      # TODO:XXX:FIXME: Params filtern!
-         "SPKAC=".              $cconfig->{SPKAC}."\n".
-         "CN=".                 $cconfig->{commonname}."\n".
-         "emailAddress=".       $cconfig->{email}."\n".
-         "organizationName=".   $cconfig->{organisation}."\n".
-         "countryName=".        $cconfig->{country}."\n".
-         "stateOrProvinceName=".$cconfig->{state}."\n".
-         "localityName=".       $cconfig->{location};
-      print STDERR $req."\n"
-         if $cconfig->{debug};
-      my $spkacwriter  = WriteForkFd($req);
-      my $days = $cconfig->{days};
-      $out = ReadFork(sub {
-         my $outfd = shift;
-         my @cmd = (
-            $opensslpath,
-            'ca',
-            ($days ? ('-days', $days) : ()),
-            "-notext",
-            "-batch",
-            "-config", '/dev/fd/'.fileno($configwriter),
-            ($pass ? ('-passin', 'fd:'.fileno($pass)) : ()),
-            "-spkac",  '/dev/fd/'.fileno($spkacwriter),
-            '-out',    '/dev/fd/'.fileno($outfd),
-         );
-         print STDERR "Running '".join(" ", @cmd)."'\n"
-            if $cconfig->{debug};
-         exec(@cmd);
-      });
-   } else {
-      my $i = 1;
-      my $j = 1;
-      my $reqconf =
-         "[ req ]"."\n".
-      "prompt = no"."\n".
-      "distinguished_name = req_distinguished_name"."\n".($cconfig->{commonaltnames} ?
-      "req_extensions = v3_req"."\n" : "").
-      "[ req_distinguished_name ]"."\n".
-      "C=".$cconfig->{country}."\n".
-      "ST=".$cconfig->{state}."\n".
-      "L=".$cconfig->{location}."\n".
-      "OU=".$cconfig->{organisation}."\n".
-      "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
-      "[ v3_req ]"."\n".
-      #"basicConstraints = CA:FALSE"."\n".
-      #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
-      'subjectAltName = @alt_names'."\n".
-      "[alt_names]"."\n".
-      join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
-      my $result = ELF::sign->new()->req($reqconf, undef, 'sha256', "rsa:2048", 31, undef);
-      $return->{csr} = $result->[1];
-      $return->{key} = $result->[0];
-      return $return
-         if (!$return->{csr} || $cconfig->{onlycsr});
-      my $crswriteer = WriteForkFd($return->{csr});
-      my $types = join(", ", map { $_->[0] } grep {
-         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $cconfig->{debug};
-         ($cconfig->{flags} & $_->[1])
-      } (
-         ["client",           $TYPCLIENT],
-         ["server",           $TYPSERVER],
-         ["email",            $TYPEMAIL],
-         ["objsign",          $TYPEOBJ],
-         ["reserved",         $TYPERESERVED],
-         ["objCA",            $TYPECAOBJ],
-         ["emailCA",          $TYPECAEMAIL],
-         ["sslCA",            $TYPECASSL],
-      ));
-      my $keyusage = join(", ", map { $_->[0] } grep {
-         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $cconfig->{debug};
-         ($cconfig->{flags} & $_->[1])
-      } (
-         ["digitalSignature", $KEYUSESIG],
-         ["nonRepudiation",   $KEYUSENONREDU],
-         ["keyEncipherment",  $KEYUSEKEYENC],
-         ["dataEncipherment", $KEYUSEDATAENC],
-         ["keyAgreement",     $KEYUSEKEYAGR],
-         ["keyCertSign",      $KEYUSECERTSIGN],
-         ["cRLSign",          $KEYUSECRLSIG],
-         ["encipherOnly",     $KEYUSEONLYENC],
-         ["decipherOnly",     $KEYUSEONLYDEC],
-      ));
-      my $extkeyusage = join(", ", map { $_->[0] } grep {
-         print STDERR $_->[0].":".$cconfig->{flags}.' & '.$_->[1]." = ".(int($cconfig->{flags}) & int($_->[1]))."\n"
-            if $cconfig->{debug};
-         ($cconfig->{flags} & $_->[1])
-      } (
-         ["clientAuth",       $EXTCLIENTAUTH],
-         ["serverAuth",       $EXTSERVERAUTH],
-         ["codeSigning",      $EXTOBJSIGN],
-         ["emailProtection",  $EXTEMAIL],
-         ["timeStamping",     $EXTTIMESTAMP],
-         ["msCodeInd",        $EXTMSINSIGN],
-         ["msCodeCom",        $EXTMSCOMSIGN],
-         ["msCTLSign",        $EXTMSCTLSIGN],
-         ["msSGC",            $EXTMSSGC],
-         ["msEFS",            $EXTMSEFS],
-         ["nsSGC",            $EXTNSSGC],
-      ));
-      my $comment = $cconfig->{comment};
-      my $extstr =
-         "basicConstraints = CA:".(($cconfig->{flags} & $ISCA) ? "TRUE" : "FALSE")."\n".
-      join("", map {
-         $_->[1]." = ".$_->[0]."\n"
-      } grep { $_->[0] } (
-         [$types,              "nsCertType"],
-         [$keyusage,           "keyUsage"],
-         [$extkeyusage,        "extendedKeyUsage"],
-         [$cconfig->{comment}, "nsComment"],
-      ));
-      $result = ELF::sign->new()->signx($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass}, $return->{csr}, $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha256', $cconfig->{days}, $extstr);
-      print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
-         if $cconfig->{debug};
-      $return->{crt} = $result->[0];
-      print STDERR "RESULT2:".$result->[1]."\n";
-      my $crtwriter = WriteForkFd($return->{crt});
-      my $keywriter = WriteForkFd($return->{key});
-      $out = ReadFork(sub {
-         my $outfd = shift;
-         my @cmd = (
-            $opensslpath,
-            "pkcs12", "-export",
-            "-in",    '/dev/fd/'.fileno($crtwriter),
-            "-inkey", '/dev/fd/'.fileno($keywriter),
-            "-out",   '/dev/fd/'.fileno($outfd),
-            "-passin", "pass:''", "-passout", "pass:".($cconfig->{pkcs12pass}||""));
-         exec(@cmd);
-      });
+      print "SENDING:".$return->{crt}.":\n";
+      $return->{out} = $return->{crt};
+      return $return;
    }
+   print STDERR "RESULT2:".$result->[1]."\n";
+   my $crtwriter = WriteForkFd($return->{crt});
+   my $keywriter = WriteForkFd($return->{key});
+   $out = ReadFork(sub {
+      my $outfd = shift;
+      my @cmd = (
+         $opensslpath,
+         "pkcs12", "-export",
+         "-in",    '/dev/fd/'.fileno($crtwriter),
+         "-inkey", '/dev/fd/'.fileno($keywriter),
+         "-out",   '/dev/fd/'.fileno($outfd),
+         "-passin", "pass:''", "-passout", "pass:".($cconfig->{pkcs12pass}||""));
+      exec(@cmd);
+   });
    while (<$out>) {
       $return->{out} .= $_;
    }
