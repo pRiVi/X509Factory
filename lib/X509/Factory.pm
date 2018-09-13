@@ -112,7 +112,7 @@ sub createCertificate {
   "[alt_names]"."\n".
   join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "")));
   my $x = X509::OpenSSL->new();
-  my $result = $x->req($reqconf, undef, 'sha384', "rsa:4096", 31, undef, $cconfig->{SPKAC} || "");
+  my $result = $x->req($reqconf, undef, $cconfig->{hash} || "sha512", 'rsa:'.($cconfig->{rsasize} || '4096'), 31, undef, $cconfig->{SPKAC} || "");
   $return->{csr} = $result->[1];
   $return->{key} = $result->[0];
   #print "REQUEST:".$result->[3]."\n";
