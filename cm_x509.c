@@ -143,6 +143,37 @@ static int x509_certify(X509_STORE *ctx, const EVP_MD *digest,
     return ret;
 }
 
+/* self sign */
+static int sign(X509 *x, EVP_PKEY *pkey, int days, int clrext,
+                const EVP_MD *digest, CONF *conf, const char *section)
+{
+
+    if (!X509_set_issuer_name(x, X509_get_subject_name(x)))
+        goto err;
+    if (!set_cert_times(x, NULL, NULL, days))
+        goto err;
+    if (!X509_set_pubkey(x, pkey))
+        goto err;
+    if (clrext) {
+        while (X509_get_ext_count(x) > 0)
+            X509_delete_ext(x, 0);
+    }
+    if (conf) {
+        X509V3_CTX ctx;
+        X509_set_version(x, 2); /* version 3 certificate */
+        X509V3_set_ctx(&ctx, x, x, NULL, NULL, 0);
+        X509V3_set_nconf(&ctx, conf);
+        if (!X509V3_EXT_add_nconf(conf, &ctx, section, x))
+            goto err;
+    }
+    if (!X509_sign(x, pkey, digest))
+        goto err;
+    return 1;
+ err:
+    //ERR_print_errors(bio_err);
+    return 0;
+}
+
 X509* X509_OpenSSL_dosign(unsigned char * cafile, unsigned char * cakeyfile, unsigned char * capassword, unsigned char * reqfiletext, unsigned char * serialt, unsigned char * md, int days, unsigned char * extconftext, X509_REQ * req) {
    int reqfile = 1;
 
@@ -229,60 +260,50 @@ X509* X509_OpenSSL_dosign(unsigned char * cafile, unsigned char * cakeyfile, uns
       ;
     }
 
-
-      printf("subject=", X509_REQ_get_subject_name(req));
-      if ((x = X509_new()) == NULL) {
-         printf("Failed to create new cert\n");
-         goto end;
-      }
-
-      if (sno == NULL) {
-         sno = ASN1_INTEGER_new();
-         if (sno == NULL || !rand_serial(NULL, sno)) {
-            printf("Failed to generate serial\n");
-            goto end;
-         }
-         if (!X509_set_serialNumber(x, sno)) {
-            printf("Failed to set generated serial\n");
-            goto end;
-         }
-         ASN1_INTEGER_free(sno);
-         sno = NULL;
-      } else if (!X509_set_serialNumber(x, sno)) {
-         printf("Failed to set serial\n");
-         goto end;
-      }
-
-      if (!X509_set_issuer_name(x, X509_REQ_get_subject_name(req))) {
-         printf("Failed to set issuer name\n");
-         goto end;
-      }
-
-      if (!X509_set_subject_name(x, X509_REQ_get_subject_name(req))) {
-         printf("Failed to set subject name\n");
-         goto end;
-      }
-
-      if (!set_cert_times(x, NULL, NULL, days)) {
-         printf("Failed to set cert times\n");
-         goto end;
-      }
-
-      if (fkey)
-         X509_set_pubkey(x, fkey);
-      else {
-         pkey = X509_REQ_get0_pubkey(req);
-         X509_set_pubkey(x, pkey);
-      }
-   //} else
-   //      x = load_cert(infile, informat, "Certificate");
-
-   X509 *xca = PEM_read_bio_X509(BIO_new_mem_buf(cafile, strlen(cafile)), NULL, 0, NULL);
-   if (xca == NULL) {
-      printf("Failed to read ca\n");
+   if ((x = X509_new()) == NULL) {
+      printf("Failed to create new cert\n");
       goto end;
    }
-   //printf("Getting CA Private Key: %s %p\n", cakeyfile, CApkey);
+
+   if (sno == NULL) {
+      sno = ASN1_INTEGER_new();
+      if (sno == NULL || !rand_serial(NULL, sno)) {
+         printf("Failed to generate serial\n");
+         goto end;
+      }
+      if (!X509_set_serialNumber(x, sno)) {
+         printf("Failed to set generated serial\n");
+         goto end;
+      }
+      ASN1_INTEGER_free(sno);
+      sno = NULL;
+   } else if (!X509_set_serialNumber(x, sno)) {
+      printf("Failed to set serial\n");
+      goto end;
+   }
+
+   if (!X509_set_issuer_name(x, X509_REQ_get_subject_name(req))) {
+      printf("Failed to set issuer name\n");
+      goto end;
+   }
+
+   if (!X509_set_subject_name(x, X509_REQ_get_subject_name(req))) {
+      printf("Failed to set subject name\n");
+      goto end;
+   }
+
+   if (!set_cert_times(x, NULL, NULL, days)) {
+      printf("Failed to set cert times\n");
+      goto end;
+   }
+
+   if (fkey)
+      X509_set_pubkey(x, fkey);
+   else {
+      pkey = X509_REQ_get0_pubkey(req);
+      X509_set_pubkey(x, pkey);
+   }
+
    if (CApkey == NULL) {
       printf("No CA private key\n");
       goto end;
@@ -297,10 +318,24 @@ X509* X509_OpenSSL_dosign(unsigned char * cafile, unsigned char * cakeyfile, uns
    int clrext = 0;
    STACK_OF(OPENSSL_STRING) *sigopts = NULL;
    assert(need_rand);
-   if (!x509_certify(ctx,  digest, x, xca, CApkey, sigopts,
-      NULL, CA_createserial, days, clrext,
-      extconf, extsect, sno, reqfile))
-      goto end;
+   X509 *xca = NULL;
+   if (strlen(cafile)) {
+      xca = PEM_read_bio_X509(BIO_new_mem_buf(cafile, strlen(cafile)), NULL, 0, NULL);
+      if (xca == NULL) {
+         printf("Failed to read ca\n");
+         goto end;
+      }
+      if (!x509_certify(ctx,  digest, x, xca, CApkey, sigopts,
+         NULL, CA_createserial, days, clrext,
+         extconf, extsect, sno, reqfile))
+         printf("Failed to x509_certify\n");
+         goto end;
+   } else {
+      if (!sign(x, CApkey, days, clrext, digest, extconf, extsect)) {
+         printf("Failed to self-sign\n");
+         goto end;
+      }
+   }
 
    end:
    if (need_rand)

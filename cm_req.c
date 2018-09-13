@@ -733,11 +733,11 @@ void * X509_OpenSSL_doreq(EVP_PKEY ** ppkey, int x509, unsigned char * config, u
       genctx = set_keygen_ctx(keytype, &pkey_type, &newkey, &keyalgstr, gen_eng);
       if (!genctx)
          goto end;
-      if (pkey_type == EVP_PKEY_EC) {
+      /* if (pkey_type == EVP_PKEY_EC) {
          printf("Generating an EC private key\n");
       } else {
          printf("Generating a %ld bit %s private key\n", newkey, keyalgstr);
-      }
+      } */
       EVP_PKEY_CTX_set_cb(genctx, genpkey_cb);
       if (EVP_PKEY_keygen(genctx, ppkey) <= 0) {
          printf("Error Generating Key\n");
