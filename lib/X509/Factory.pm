@@ -103,15 +103,16 @@ sub createCertificate {
   "ST=".$cconfig->{state}."\n".
   "L=".$cconfig->{location}."\n".
   "OU=".$cconfig->{organisation}."\n".
-  "CN=".$cconfig->{commonname}."\n".($cconfig->{commonaltnames} ?
-  "[ v3_req ]"."\n".
-  #"basicConstraints = CA:FALSE"."\n".
-  #"keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".
+  "CN=".$cconfig->{commonname}."\n".
+  "[ v3_req ]"."\n".(!$cconfig->{ca} ?
+  "basicConstraints = CA:TRUE"."\n" :
+  ("basicConstraints = CA:FALSE"."\n".
+  "keyUsage = nonRepudiation, digitalSignature, keyEncipherment"."\n".($cconfig->{commonaltnames} ?
   'subjectAltName = @alt_names'."\n".
   "[alt_names]"."\n".
-  join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "");
+  join("\n", map { (/^[\d\.]+$/ ? "IP.".$i++ : "DNS.".$j++)." = ".$_ } @{$cconfig->{commonaltnames}}) : "")));
   my $x = X509::OpenSSL->new();
-  my $result = $x->req($reqconf, undef, 'sha256', "rsa:2048", 31, undef, $cconfig->{SPKAC} || "");
+  my $result = $x->req($reqconf, undef, 'sha384', "rsa:4096", 31, undef, $cconfig->{SPKAC} || "");
   $return->{csr} = $result->[1];
   $return->{key} = $result->[0];
   #print "REQUEST:".$result->[3]."\n";
@@ -174,10 +175,10 @@ sub createCertificate {
      [$extkeyusage,        "extendedKeyUsage"],
      [$cconfig->{comment}, "nsComment"],
   ));
-  $result = $x->x509($cconfig->{ca}, $cconfig->{key}, $cconfig->{pass},
+  $result = $x->x509($cconfig->{ca}, $cconfig->{selfsign} ? $return->{key} : $cconfig->{key}, $cconfig->{pass},
      #$return->{csr},
      undef,
-     $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha256', $cconfig->{days}, $extstr, $x->getreq());
+     $cconfig->{serial} || int(rand(int(2**63)+(int(2**63)-1))), $cconfig->{hash} || 'sha512', $cconfig->{days}, $extstr);
    print STDERR "CA:".$cconfig->{ca}."\nKEY:".(length($cconfig->{key})||"-")."\nSELFSIGNKEY=".(length($return->{key}) || "-")."\nPASS:".$cconfig->{pass}."\n"
       if $cconfig->{debug};
    $return->{crt} = $result->[0];
